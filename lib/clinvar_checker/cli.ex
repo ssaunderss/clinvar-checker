@@ -39,7 +39,7 @@ defmodule ClinvarChecker.Cli do
   end
 
   def parse_command({["version" | _cmd], _args}) do
-    IO.puts("ClinVar Checker v#{Application.spec(:clinvar_checker, :vsn)}")
+    IO.puts("ClinVar Checker v#{Application.spec(:clinvar_checker, :vsn)}\n")
   end
 
   def parse_command({cmd, _args}) do
@@ -90,7 +90,7 @@ defmodule ClinvarChecker.Cli do
 
       Examples:
         clinvar-checker download
-        clinvar-checker check 23andme_data.txt -o clinvar_report.txt -cs pathogenic,likely_pathogenic
+        clinvar-checker check 23andme_data.txt -o clinvar_report.txt -cs pathogenic,likely_pathogenic\n
     """)
   end
 end
