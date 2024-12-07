@@ -15,8 +15,8 @@ defmodule ClinvarChecker.Application do
     # opts = [strategy: :one_for_one, name: ClinvarChecker.Supervisor]
     # Supervisor.start_link(children, opts)
     #
-    args = Burrito.Utils.Args.get_arguments()
-    ClinvarChecker.run(args)
+    args = Burrito.Util.Args.get_arguments()
+    ClinvarChecker.Cli.main(args)
     System.halt(0)
   end
 end

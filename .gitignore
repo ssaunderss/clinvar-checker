@@ -24,3 +24,8 @@ clinvar_checker-*.tar
 
 # Temporary files - downloads and results
 /tmp/
+*.vcf
+*.txt
+
+.elixir-tools/
+.elixir_ls/

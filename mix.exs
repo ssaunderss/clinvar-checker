@@ -24,7 +24,7 @@ defmodule ClinvarChecker.MixProject do
       {:burrito, "~> 1.0"},
       {:req, "~> 0.5.8"},
       {:flow, "~> 1.2"},
-      {:sizeable, "~> 1.0", only: :dev}
+      {:sizeable, "~> 1.0"}
     ]
   end
 
