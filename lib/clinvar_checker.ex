@@ -4,40 +4,46 @@ defmodule ClinvarChecker do
   Handles downloading, parsing, and comparing genetic variants.
   """
 
-  def run_analysis(personal_data_path) do
-    with {:ok, clinvar_path} <- maybe_download_clinvar_data() do
+  @type args :: [memory_profile: boolean(), clinical_significance: String.t(), output: String.t()]
+
+  @clinvar_download "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz"
+  @clinvar_file "tmp/clinvar.vcf"
+  @default_output "tmp/variant_analysis_report.txt"
+
+  def run(input, args) do
+    if File.exists?(@clinvar_file) do
       # Parse both datasets
-      personal_variants = parse_23andme_file(personal_data_path)
-      clinvar_variants = parse_clinvar_file(clinvar_path)
+      personal_variants = parse_23andme_file(input)
+      clinvar_variants = parse_clinvar_file(@clinvar_file)
 
       # Find matches and generate report
       matches = analyze_variants(personal_variants, clinvar_variants)
 
       # Generate report
-      generate_report(matches)
+      generate_report(matches, args[:output])
+    else
+      IO.puts(
+        "Error: ClinVar data not found. Please run `clinvar-checker download` to download the data first.\n"
+      )
+
+      System.halt(1)
     end
   end
 
-  @spec maybe_download_clinvar_data() ::
+  @spec download_clinvar_data() ::
           {:ok, file_name :: String.t()} | {:error, error_message :: String.t()}
-  def maybe_download_clinvar_data do
-    clinvar_url = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz"
-    output_file = "tmp/clinvar.vcf"
+  def download_clinvar_data() do
+    case Req.get!(@clinvar_download, decode_body: false) do
+      %Req.Response{status: 200, body: body} ->
+        # Save and decompress
+        compressed = @clinvar_file <> ".gz"
+        File.write!(compressed, body)
+        System.cmd("gunzip", ["-f", compressed])
 
-    if File.exists?(output_file) do
-      {:ok, output_file}
-    else
-      case Req.get!(clinvar_url, decode_body: false) do
-        %Req.Response{status: 200, body: body} ->
-          # Save and decompress
-          File.write!("tmp/clinvar.vcf.gz", body)
-          System.cmd("gunzip", ["-f", "tmp/clinvar.vcf.gz"])
+        {:ok, @clinvar_file}
 
-          {:ok, output_file}
-
-        %Req.Response{status: status} ->
-          {:error, "Failed to download ClinVar data. Status: #{status}"}
-      end
+      %Req.Response{status: status} ->
+        {:error, "Failed to download ClinVar data. Status: #{status}"}
     end
   end
 
@@ -113,33 +119,38 @@ defmodule ClinvarChecker do
 
   @spec parse_23andme_file(file_path :: String.t()) :: %{tuple() => map()}
   def parse_23andme_file(path) do
-    path
-    |> File.stream!([], :line)
-    |> Flow.from_enumerable(
-      max_demand: 1000,
-      stages: System.schedulers_online(),
-      window_trigger: Flow.Window.count(10_000),
-      window_period: :infinity
-    )
-    |> Flow.partition(stages: System.schedulers_online())
-    |> Flow.reject(&String.starts_with?(&1, "#"))
-    |> Flow.map(&parse_23andme_line/1)
-    |> Flow.reject(&is_nil/1)
-    |> Flow.map(fn variant ->
-      key = {variant.chromosome, variant.position}
-      {key, variant}
-    end)
-    |> Flow.partition(
-      key: fn {key, _variant} ->
-        :erlang.phash2(elem(key, 0), System.schedulers_online())
-      end
-    )
-    |> Flow.reduce(fn -> %{} end, fn {key, variant}, acc ->
-      Map.put(acc, key, variant)
-    end)
-    |> Enum.to_list()
-    |> List.flatten()
-    |> Enum.into(%{})
+    if File.exists?(path) do
+      path
+      |> File.stream!([], :line)
+      |> Flow.from_enumerable(
+        max_demand: 1000,
+        stages: System.schedulers_online(),
+        window_trigger: Flow.Window.count(10_000),
+        window_period: :infinity
+      )
+      |> Flow.partition(stages: System.schedulers_online())
+      |> Flow.reject(&String.starts_with?(&1, "#"))
+      |> Flow.map(&parse_23andme_line/1)
+      |> Flow.reject(&is_nil/1)
+      |> Flow.map(fn variant ->
+        key = {variant.chromosome, variant.position}
+        {key, variant}
+      end)
+      |> Flow.partition(
+        key: fn {key, _variant} ->
+          :erlang.phash2(elem(key, 0), System.schedulers_online())
+        end
+      )
+      |> Flow.reduce(fn -> %{} end, fn {key, variant}, acc ->
+        Map.put(acc, key, variant)
+      end)
+      |> Enum.to_list()
+      |> List.flatten()
+      |> Enum.into(%{})
+    else
+      IO.puts("Error: 23andMe data file not found. Please use `clinvar-checker help` for help.\n")
+      System.halt(1)
+    end
   end
 
   defp parse_23andme_line(line) do
@@ -184,7 +195,7 @@ defmodule ClinvarChecker do
     end)
   end
 
-  defp generate_report(matches) do
+  defp generate_report(matches, output) do
     report =
       matches
       |> Enum.sort_by(fn match -> {match.chromosome, match.position} end)
@@ -201,8 +212,22 @@ defmodule ClinvarChecker do
       end)
       |> Enum.join("\n")
 
-    File.write!("tmp/variant_analysis_report.txt", report)
+    output
+    |> validate_output()
+    |> File.write!(report)
 
     {:ok, Enum.count(matches)}
+  end
+
+  defp validate_output(nil = _output), do: @default_output
+
+  defp validate_output(output) do
+    if String.ends_with?(output, ".txt") do
+      output
+    else
+      IO.puts("Warning: Output file invalid, writing results to #{@default_output}\n")
+
+      @default_output
+    end
   end
 end

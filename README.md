@@ -4,9 +4,11 @@ This tool is still actively WIP. The goal is to provide a CLI tool that can cros
 Simple CLI tool to cross-check your raw 23andMe genetic data against the ClinVar database
 
 ## TODOs
-- [ ] Build the CLI tool
-  - [ ] Pass in the path to the raw 23andMe data
+- [x] Build the CLI tool
+  - [x] Download the ClinVar database
+  - [x] Cross-check user input 23andme data against the ClinVar database
   - [ ] Optional flag for clinical significance
+- [ ] Make releases
 - [ ] Build out README - how to use, install, technical stuff, the algorithm for cross-checking
 - [ ] Research alternate alleles
 - [ ] Better aggregations based on likelihood of disease
