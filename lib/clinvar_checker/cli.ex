@@ -6,17 +6,20 @@ defmodule ClinvarChecker.Cli do
   """
   @spec main([String.t(), ...]) :: any()
   def main(args) do
-    args
-    |> sanitize_args()
-    |> parse_args()
-    |> then(fn args ->
-      if Mix.env() == :dev do
-        IO.inspect(args, label: "Parsed command and args")
-      else
-        args
-      end
+    ClinvarChecker.MemoryProfiler.profile(fn ->
+      args
+      |> sanitize_args()
+      |> parse_args()
+      |> validate_args()
+      |> then(fn args ->
+        if Mix.env() == :dev do
+          IO.inspect(args, label: "Parsed command and args")
+        else
+          args
+        end
+      end)
+      |> parse_command()
     end)
-    |> parse_command()
   end
 
   def parse_command({["check", input | _cmd], args}) do
@@ -67,6 +70,27 @@ defmodule ClinvarChecker.Cli do
       )
 
     {command, args}
+  end
+
+  defp validate_args({command, args}) do
+    case Keyword.get(args, :clinical_significance) do
+      nil ->
+        {command, args}
+
+      clinical_significance ->
+        parsed_cs = clinical_significance |> String.split(",") |> MapSet.new()
+        cs_diff = MapSet.difference(parsed_cs, ClinvarChecker.valid_clinical_significances())
+
+        if MapSet.size(cs_diff) > 0 do
+          IO.puts(
+            "Error: Invalid clinical significance(s) provided: #{inspect(cs_diff |> MapSet.to_list())}"
+          )
+
+          System.halt()
+        else
+          {command, Keyword.put(args, :clinical_significance, parsed_cs)}
+        end
+    end
   end
 
   defp sanitize_args(args) do

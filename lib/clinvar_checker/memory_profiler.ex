@@ -1,5 +1,5 @@
 defmodule ClinvarChecker.MemoryProfiler do
-  require Logger
+  # require Logger
 
   @spec profile((-> any())) :: any()
   def profile(func) do
@@ -14,7 +14,7 @@ defmodule ClinvarChecker.MemoryProfiler do
         {type, after_bytes - initial_memory[type]}
       end
 
-    Logger.info("""
+    IO.puts("""
     Memory Usage:
     Total: #{Sizeable.filesize(memory_diff[:total])}
     Processes: #{Sizeable.filesize(memory_diff[:processes])}

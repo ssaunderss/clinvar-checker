@@ -6,9 +6,20 @@ defmodule ClinvarChecker do
 
   @type args :: [memory_profile: boolean(), clinical_significance: String.t(), output: String.t()]
 
+  @clinical_significances MapSet.new([
+                            "benign",
+                            "likely_benign",
+                            "uncertain",
+                            "likely_pathogenic",
+                            "pathogenic",
+                            "uncertain",
+                            "drug_response"
+                          ])
   @clinvar_download "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz"
   @clinvar_file "tmp/clinvar.vcf"
   @default_output "tmp/variant_analysis_report.txt"
+
+  def valid_clinical_significances(), do: @clinical_significances
 
   def run(input, args) do
     if File.exists?(@clinvar_file) do
@@ -17,7 +28,7 @@ defmodule ClinvarChecker do
       clinvar_variants = parse_clinvar_file(@clinvar_file)
 
       # Find matches and generate report
-      matches = analyze_variants(personal_variants, clinvar_variants)
+      matches = analyze_variants(personal_variants, clinvar_variants, args)
 
       # Generate report
       generate_report(matches, args[:output])
@@ -92,6 +103,7 @@ defmodule ClinvarChecker do
         position: position,
         reference: ref,
         alternate: alt,
+        processed_significances: parsed_info.processed_significances,
         clinical_significance: parsed_info.clinical_significance,
         condition: parsed_info.condition
       }
@@ -111,8 +123,17 @@ defmodule ClinvarChecker do
         end
       end)
 
+    raw_significance = Map.get(info_map, "CLNSIG", "unknown")
+
+    processed_significances =
+      raw_significance
+      |> String.split(["|", "/", ","])
+      |> Enum.map(&String.downcase/1)
+      |> MapSet.new()
+
     %{
-      clinical_significance: Map.get(info_map, "CLNSIG", "unknown"),
+      clinical_significance: raw_significance,
+      processed_significances: processed_significances,
       condition: Map.get(info_map, "CLNDN", "unknown")
     }
   end
@@ -169,30 +190,66 @@ defmodule ClinvarChecker do
   defp normalize_chromosome("MT"), do: "M"
   defp normalize_chromosome(chrom), do: chrom
 
-  def analyze_variants(personal_data, clinvar_data) do
+  # def analyze_variants(personal_data, clinvar_data, args) do
+  #   personal_data
+  #   |> Map.keys()
+  #   |> Enum.reduce([], fn key, matches ->
+  #     case Map.get(clinvar_data, key) do
+  #       nil ->
+  #         matches
+
+  #       clinvar_entry ->
+  #         if is_nil(args[:clinical_significance]) ||
+  #              MapSet.intersection(
+  #                clinvar_entry.processed_significances,
+  #                args[:clinical_significance]
+  #              )
+  #              |> MapSet.size() > 0 do
+  #           personal_variant = Map.get(personal_data, key)
+
+  #           [
+  #             %{
+  #               chromosome: elem(key, 0),
+  #               position: elem(key, 1),
+  #               rsid: personal_variant.rsid,
+  #               genotype: personal_variant.genotype,
+  #               clinical_significance: clinvar_entry.clinical_significance,
+  #               condition: clinvar_entry.condition
+  #             }
+  #             | matches
+  #           ]
+  #         else
+  #           matches
+  #         end
+  #     end
+  #   end)
+  # end
+
+  def analyze_variants(personal_data, clinvar_data, args) do
     personal_data
     |> Map.keys()
-    |> Enum.reduce([], fn key, matches ->
-      case Map.get(clinvar_data, key) do
-        nil ->
-          matches
+    |> Stream.map(fn key -> {key, Map.get(clinvar_data, key)} end)
+    |> Stream.reject(fn {_key, clinvar_entry} -> is_nil(clinvar_entry) end)
+    |> Stream.filter(&matches_significance?(&1, args[:clinical_significance]))
+    |> Enum.map(fn {key, clinvar_entry} ->
+      personal_variant = Map.get(personal_data, key)
 
-        clinvar_entry ->
-          personal_variant = Map.get(personal_data, key)
-
-          [
-            %{
-              chromosome: elem(key, 0),
-              position: elem(key, 1),
-              rsid: personal_variant.rsid,
-              genotype: personal_variant.genotype,
-              clinical_significance: clinvar_entry.clinical_significance,
-              condition: clinvar_entry.condition
-            }
-            | matches
-          ]
-      end
+      %{
+        chromosome: elem(key, 0),
+        position: elem(key, 1),
+        rsid: personal_variant.rsid,
+        genotype: personal_variant.genotype,
+        clinical_significance: clinvar_entry.clinical_significance,
+        condition: clinvar_entry.condition
+      }
     end)
+  end
+
+  defp matches_significance?({_key, _clinvar_entry}, nil), do: true
+
+  defp matches_significance?({_key, clinvar_entry}, clinical_significance) do
+    MapSet.intersection(clinvar_entry.processed_significances, clinical_significance)
+    |> MapSet.size() > 0
   end
 
   defp generate_report(matches, output) do
