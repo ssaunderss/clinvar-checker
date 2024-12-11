@@ -84,9 +84,6 @@ defmodule ClinvarChecker do
     |> Flow.reduce(fn -> %{} end, fn {key, variant}, acc ->
       Map.put(acc, key, variant)
     end)
-    |> Flow.take_sort(100_000, fn {key1, _}, {key2, _} ->
-      key1 <= key2
-    end)
     |> Enum.to_list()
     |> List.flatten()
     |> Enum.into(%{})
