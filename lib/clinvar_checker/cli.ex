@@ -23,9 +23,7 @@ defmodule ClinvarChecker.Cli do
   end
 
   def parse_command({["check", input | _cmd], args}) do
-    {:ok, count_matches} = ClinvarChecker.run(input, args)
-
-    IO.puts("Analysis complete. Found #{count_matches} matches.\n")
+    {:ok, _count_matches} = ClinvarChecker.run(input, args)
   end
 
   def parse_command({["download" | _cmd], _args}) do
