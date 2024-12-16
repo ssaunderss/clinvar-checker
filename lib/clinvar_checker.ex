@@ -72,7 +72,7 @@ defmodule ClinvarChecker do
   def parse_clinvar_file(path) do
     clinvar_table =
       :ets.new(@clinvar_ets_table, [
-        :set,
+        :ordered_set,
         :public,
         :named_table,
         read_concurrency: true,

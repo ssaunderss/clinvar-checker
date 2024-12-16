@@ -30,3 +30,5 @@ clinvar_checker-*.tar
 .elixir-tools/
 .elixir_ls/
 .lexical/
+
+*.DS_Store
