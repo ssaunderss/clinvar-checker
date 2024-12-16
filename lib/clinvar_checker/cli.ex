@@ -6,20 +6,18 @@ defmodule ClinvarChecker.Cli do
   """
   @spec main([String.t(), ...]) :: any()
   def main(args) do
-    ClinvarChecker.MemoryProfiler.profile(fn ->
-      args
-      |> sanitize_args()
-      |> parse_args()
-      |> validate_args()
-      |> then(fn args ->
-        if Mix.env() == :dev do
-          IO.inspect(args, label: "Parsed command and args")
-        else
-          args
-        end
-      end)
-      |> parse_command()
+    args
+    |> sanitize_args()
+    |> parse_args()
+    |> validate_args()
+    |> then(fn args ->
+      if Mix.env() == :dev do
+        IO.inspect(args, label: "Parsed command and args")
+      else
+        args
+      end
     end)
+    |> parse_command()
   end
 
   def parse_command({["check", input | _cmd], args}) do
