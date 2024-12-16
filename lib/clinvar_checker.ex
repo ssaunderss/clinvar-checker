@@ -7,17 +7,38 @@ defmodule ClinvarChecker do
   @type args :: [memory_profile: boolean(), clinical_significance: String.t(), output: String.t()]
 
   @clinvar_download "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh37/clinvar.vcf.gz"
+  @clinvar_ets_table :clinvar_variants
   @clinvar_file "tmp/clinvar.vcf"
+  @clinical_significances MapSet.new([
+                            "benign",
+                            "likely_benign",
+                            "uncertain",
+                            "likely_pathogenic",
+                            "pathogenic",
+                            "uncertain",
+                            "drug_response"
+                          ])
   @default_output "tmp/variant_analysis_report.txt"
+
+  def valid_clinical_significances(), do: @clinical_significances
+  defp stages, do: System.schedulers_online() * 2
+  defp microseconds_to_seconds(microseconds), do: microseconds / 1_000_000
 
   def run(input, args) do
     if File.exists?(@clinvar_file) do
       # Parse both datasets
-      personal_variants = parse_23andme_file(input)
-      clinvar_variants = parse_clinvar_file(@clinvar_file)
+      {time, personal_variants} = :timer.tc(fn -> parse_23andme_file(input) end)
+      IO.puts("23andMe data parsed in #{microseconds_to_seconds(time)} seconds")
+
+      {time, _} = :timer.tc(fn -> parse_clinvar_file(@clinvar_file) end)
+      IO.puts("ClinVar data parsed in #{microseconds_to_seconds(time)} seconds")
 
       # Find matches and generate report
-      matches = analyze_variants(personal_variants, clinvar_variants)
+      {time, matches} = :timer.tc(fn -> analyze_variants(personal_variants, args) end)
+
+      IO.puts(
+        "Analysis completed in #{microseconds_to_seconds(time)} seconds, found #{Enum.count(matches)} matches"
+      )
 
       # Generate report
       generate_report(matches, args[:output])
@@ -47,51 +68,75 @@ defmodule ClinvarChecker do
     end
   end
 
-  @spec parse_clinvar_file(file_path :: String.t()) :: %{tuple() => map()}
+  @spec parse_clinvar_file(file_path :: String.t()) :: ets_table_name :: atom()
   def parse_clinvar_file(path) do
+    clinvar_table =
+      :ets.new(@clinvar_ets_table, [
+        :ordered_set,
+        :public,
+        :named_table,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
     path
     |> File.stream!([], :line)
     |> Flow.from_enumerable(
-      max_demand: 1000,
-      stages: System.schedulers_online(),
-      window_trigger: Flow.Window.count(10_000),
+      max_demand: 4_000,
+      stages: stages(),
+      window_trigger: Flow.Window.count(40_000),
       window_period: :infinity
     )
-    |> Flow.partition(stages: System.schedulers_online())
-    |> Flow.reject(&String.starts_with?(&1, "#"))
+    |> Flow.partition(stages: stages())
     |> Flow.map(&parse_clinvar_line/1)
-    |> Flow.reject(&is_nil/1)
-    |> Flow.map(fn variant ->
-      key = {variant.chromosome, variant.position}
-      {key, variant}
+    |> Flow.map(fn
+      nil ->
+        nil
+
+      variant ->
+        key =
+          {variant.chromosome, variant.position, variant.reference, variant.alternate}
+
+        {key, variant}
     end)
     |> Flow.partition(
-      key: fn {key, _variant} ->
-        :erlang.phash2(elem(key, 0), System.schedulers_online())
-      end
+      key: fn
+        {key, _variant} ->
+          :erlang.phash2(elem(key, 0), stages())
+
+        val ->
+          :erlang.phash2(val, stages())
+      end,
+      stages: stages()
     )
-    |> Flow.reduce(fn -> %{} end, fn {key, variant}, acc ->
-      Map.put(acc, key, variant)
-    end)
-    |> Flow.take_sort(100_000, fn {key1, _}, {key2, _} ->
-      key1 <= key2
+    |> Flow.map(fn
+      {key, variant} -> :ets.insert(clinvar_table, {key, variant})
+      _ -> :ok
     end)
     |> Enum.to_list()
-    |> List.flatten()
-    |> Enum.into(%{})
+
+    @clinvar_ets_table
   end
+
+  defp parse_clinvar_line("#" <> _rest), do: nil
 
   defp parse_clinvar_line(line) do
     with [chrom, pos, _id, ref, alt, _qual, _filter, info] <-
            :binary.split(line, "\t", [:global]),
-         {position, _} <- Integer.parse(pos) do
+         {position, _} <-
+           Integer.parse(pos),
+         # We cannot confidently analyze multi-nucleotide variants
+         1 <- String.length(ref),
+         1 <- String.length(alt) do
       parsed_info = parse_clinvar_info(info)
+      normalized_chromosme = normalize_chromosome(chrom)
 
       %{
-        chromosome: normalize_chromosome(chrom),
+        chromosome: normalized_chromosme,
         position: position,
         reference: ref,
         alternate: alt,
+        processed_significances: parsed_info.processed_significances,
         clinical_significance: parsed_info.clinical_significance,
         condition: parsed_info.condition
       }
@@ -111,8 +156,17 @@ defmodule ClinvarChecker do
         end
       end)
 
+    raw_significance = Map.get(info_map, "CLNSIG", "unknown")
+
+    processed_significances =
+      raw_significance
+      |> String.split(["|", "/", ","])
+      |> Enum.map(&String.downcase/1)
+      |> MapSet.new()
+
     %{
-      clinical_significance: Map.get(info_map, "CLNSIG", "unknown"),
+      clinical_significance: raw_significance,
+      processed_significances: processed_significances,
       condition: Map.get(info_map, "CLNDN", "unknown")
     }
   end
@@ -123,44 +177,55 @@ defmodule ClinvarChecker do
       path
       |> File.stream!([], :line)
       |> Flow.from_enumerable(
-        max_demand: 1000,
-        stages: System.schedulers_online(),
-        window_trigger: Flow.Window.count(10_000),
+        max_demand: 4_000,
+        stages: stages(),
+        window_trigger: Flow.Window.count(40_000),
         window_period: :infinity
       )
       |> Flow.partition(stages: System.schedulers_online())
-      |> Flow.reject(&String.starts_with?(&1, "#"))
       |> Flow.map(&parse_23andme_line/1)
-      |> Flow.reject(&is_nil/1)
-      |> Flow.map(fn variant ->
-        key = {variant.chromosome, variant.position}
-        {key, variant}
+      |> Flow.map(fn
+        nil ->
+          nil
+
+        genotype_call ->
+          {genotype_call.chromosome, genotype_call.position, genotype_call.genotype,
+           genotype_call.rsid}
       end)
       |> Flow.partition(
-        key: fn {key, _variant} ->
-          :erlang.phash2(elem(key, 0), System.schedulers_online())
-        end
+        key: fn
+          {chrom, pos, genotype, _rsid} -> :erlang.phash2({chrom, pos, genotype}, stages())
+          val -> :erlang.phash2(val, stages())
+        end,
+        stages: stages()
       )
-      |> Flow.reduce(fn -> %{} end, fn {key, variant}, acc ->
-        Map.put(acc, key, variant)
+      |> Flow.reduce(fn -> [] end, fn
+        {_chrom, _pos, _genotype, _rsid} = call, acc -> [call | acc]
+        _val, acc -> acc
       end)
       |> Enum.to_list()
-      |> List.flatten()
-      |> Enum.into(%{})
     else
       IO.puts("Error: 23andMe data file not found. Please use `clinvar-checker help` for help.\n")
       System.halt(1)
     end
   end
 
+  defp parse_23andme_line("#" <> _), do: nil
+
   defp parse_23andme_line(line) do
-    with [rsid, chromosome, position, genotype] <- :binary.split(line, "\t", [:global]) do
-      %{
-        rsid: rsid,
-        chromosome: normalize_chromosome(chromosome),
-        position: String.to_integer(position),
-        genotype: String.trim(genotype)
-      }
+    with [rsid, chromosome, position, genotype] <- :binary.split(line, "\t", [:global]),
+         trimmed_genotype <- String.trim(genotype) do
+      # Skip "no call" genotypes - 23andMe data not confident enough to call this genotype
+      if trimmed_genotype == "--" do
+        nil
+      else
+        %{
+          rsid: rsid,
+          chromosome: normalize_chromosome(chromosome),
+          position: String.to_integer(position),
+          genotype: String.trim(genotype)
+        }
+      end
     else
       _ -> nil
     end
@@ -169,30 +234,60 @@ defmodule ClinvarChecker do
   defp normalize_chromosome("MT"), do: "M"
   defp normalize_chromosome(chrom), do: chrom
 
-  def analyze_variants(personal_data, clinvar_data) do
+  def analyze_variants(personal_data, args) do
     personal_data
-    |> Map.keys()
-    |> Enum.reduce([], fn key, matches ->
-      case Map.get(clinvar_data, key) do
-        nil ->
-          matches
+    |> Stream.map(fn {chrom, pos, genotype, _rsid} = genotype_call ->
+      {genotype_call, matching_variants_for_genotype(chrom, pos, genotype)}
+    end)
+    |> Stream.reject(fn {_genotype_call, matches} -> is_nil(matches) end)
+    |> Stream.map(fn {genotype_call, matches} ->
+      {genotype_call,
+       Enum.filter(matches, &matches_significance?(&1, args[:clinical_significance]))}
+    end)
+    |> Enum.flat_map(fn {{chrom, pos, genotype, rsid}, clinvar_entries} ->
+      Enum.map(clinvar_entries, fn clinvar_entry ->
+        build_report_entry(chrom, pos, genotype, rsid, clinvar_entry)
+      end)
+    end)
+  end
 
-        clinvar_entry ->
-          personal_variant = Map.get(personal_data, key)
+  defp build_report_entry(chrom, pos, genotype, rsid, clinvar_entry) do
+    %{
+      chromosome: chrom,
+      position: pos,
+      rsid: rsid,
+      genotype: genotype,
+      clinical_significance: clinvar_entry.clinical_significance,
+      condition: clinvar_entry.condition
+    }
+  end
 
-          [
-            %{
-              chromosome: elem(key, 0),
-              position: elem(key, 1),
-              rsid: personal_variant.rsid,
-              genotype: personal_variant.genotype,
-              clinical_significance: clinvar_entry.clinical_significance,
-              condition: clinvar_entry.condition
-            }
-            | matches
-          ]
+  @spec matching_variants_for_genotype(
+          chromosome :: String.t(),
+          position :: integer(),
+          genotype :: String.t()
+        ) :: [map()] | nil
+  defp matching_variants_for_genotype(chromosome, position, genotype) do
+    genotype
+    |> String.graphemes()
+    |> Enum.uniq()
+    |> Enum.reduce([], fn a, acc ->
+      case :ets.select(@clinvar_ets_table, [{{{chromosome, position, :_, a}, :_}, [], [:"$_"]}]) do
+        [] ->
+          acc
+
+        matches ->
+          Enum.map(matches, &elem(&1, 1)) ++ acc
       end
     end)
+    |> then(fn result -> if Enum.empty?(result), do: nil, else: result end)
+  end
+
+  defp matches_significance?(_clinvar_entry, nil), do: true
+
+  defp matches_significance?(clinvar_entry, clinical_significance) do
+    MapSet.intersection(clinvar_entry.processed_significances, clinical_significance)
+    |> MapSet.size() > 0
   end
 
   defp generate_report(matches, output) do
