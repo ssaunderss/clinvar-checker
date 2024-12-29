@@ -11,7 +11,7 @@ defmodule ClinvarChecker.Cli do
     |> parse_args()
     |> validate_args()
     |> then(fn args ->
-      if Mix.env() == :dev do
+      if config_env() == :dev do
         IO.inspect(args, label: "Parsed command and args")
       else
         args
@@ -92,6 +92,8 @@ defmodule ClinvarChecker.Cli do
   defp sanitize_args(args) do
     Enum.drop_while(args, &(&1 == "start" || &1 == "app.start" || String.ends_with?(&1, "mix")))
   end
+
+  defp config_env(), do: Application.get_env(:clinvar_checker, :env)
 
   defp print_help() do
     IO.puts("""
