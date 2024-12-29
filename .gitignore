@@ -32,3 +32,5 @@ clinvar_checker-*.tar
 .lexical/
 
 *.DS_Store
+
+burrito_out/
