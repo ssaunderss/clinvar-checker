@@ -32,13 +32,13 @@ The ClinVar database provides information about genetic variants and their clini
 | AT | Yes (1 copy) | No | Novel alternate T | No ClinVar variant present |
 | TA | Yes (1 copy) | No | Novel alternate T | No ClinVar variant present |
 | TT | No | No | Different variant entirely | No ClinVar variant present |
-| GT | No | Yes (1 copy) | Mixed variant profile | Heterozygous for variant |
-| TG | No | Yes (1 copy) | Mixed variant profile | Heterozygous for variant |
+| GT | No | Yes (1 copy) | Mixed variant profile | Heterozygous for G variant with novel alternate, specific variant not present |
+| TG | No | Yes (1 copy) | Mixed variant profile | Heterozygous for G variant with novel alternate, specific variant not present |
 | AC | Yes (1 copy) | No | Novel alternate C | No ClinVar variant present |
 | CA | Yes (1 copy) | No | Novel alternate C | No ClinVar variant present |
 | CC | No | No | Different variant entirely | No ClinVar variant present |
-| GC | No | Yes (1 copy) | Mixed variant profile | Heterozygous for variant |
-| CG | No | Yes (1 copy) | Mixed variant profile | Heterozygous for variant |
+| GC | No | Yes (1 copy) | Mixed variant profile | Heterozygous for G variant with novel alternate, specific variant not present |
+| CG | No | Yes (1 copy) | Mixed variant profile | Heterozygous for G variant with novel alternate, specific variant not present |
 | TC | No | No | Different variant entirely | No ClinVar variant present |
 | CT | No | No | Different variant entirely | No ClinVar variant present |
 
