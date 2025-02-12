@@ -55,7 +55,7 @@ The ClinVar database provides information about genetic variants and their clini
 1. Bump the version in `mix.exs`
 2. `MIX_ENV=prod mix release`
 3. Binaries are built in `.burrito_out/`
-4. `git tag -a v{$VERSION} -m {$MESSAGE} && git push --tags
+4. `git tag -a v{$VERSION} -m {$MESSAGE} && git push --tags`
 5. Create a new release on the [releases page](https://github.com/ssaunderss/clinvar-checker/releases)
 
 ## TODOs
