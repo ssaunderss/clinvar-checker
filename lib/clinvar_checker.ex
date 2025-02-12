@@ -268,19 +268,35 @@ defmodule ClinvarChecker do
           genotype :: String.t()
         ) :: [map()] | nil
   defp matching_variants_for_genotype(chromosome, position, genotype) do
-    genotype
-    |> String.graphemes()
-    |> Enum.uniq()
-    |> Enum.reduce([], fn a, acc ->
-      case :ets.select(@clinvar_ets_table, [{{{chromosome, position, :_, a}, :_}, [], [:"$_"]}]) do
-        [] ->
-          acc
+    case String.graphemes(genotype) do
+      [a1, a2] ->
+        if a1 == a2 do
+          homozygous_matches(chromosome, position, a1)
+        else
+          heterozygous_matches(chromosome, position, a1, a2)
+        end
 
-        matches ->
-          Enum.map(matches, &elem(&1, 1)) ++ acc
-      end
-    end)
+      # this is for males - the X chromosome will only have one allele
+      [a1] ->
+        homozygous_matches(chromosome, position, a1)
+    end
+    |> Enum.map(&elem(&1, 1))
     |> then(fn result -> if Enum.empty?(result), do: nil, else: result end)
+  end
+
+  # wildcard match alternate alleles when genotype is homozygous
+  defp homozygous_matches(chromosome, position, allele) do
+    :ets.select(@clinvar_ets_table, [{{{chromosome, position, :_, allele}, :_}, [], [:"$_"]}])
+  end
+
+  # since the genotype is heterozygous, we need to check both combinations of alleles for matches
+  defp heterozygous_matches(chromosome, position, allele1, allele2) do
+    :ets.select(@clinvar_ets_table, [
+      {{{chromosome, position, allele1, allele2}, :_}, [], [:"$_"]}
+    ]) ++
+      :ets.select(@clinvar_ets_table, [
+        {{{chromosome, position, allele2, allele1}, :_}, [], [:"$_"]}
+      ])
   end
 
   defp matches_significance?(_clinvar_entry, nil), do: true
