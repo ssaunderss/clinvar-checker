@@ -83,7 +83,6 @@ defmodule ClinvarChecker do
     |> File.stream!([], :line)
     |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
     |> Flow.map(&parse_clinvar_line/1)
-    |> Flow.map(&make_clinvar_key/1)
     |> Flow.partition(
       key: fn
         {key, _variant} ->
@@ -116,7 +115,7 @@ defmodule ClinvarChecker do
       parsed_info = parse_clinvar_info(info)
       normalized_chromosme = normalize_chromosome(chrom)
 
-      %{
+      variant = %{
         chromosome: normalized_chromosme,
         position: position,
         reference: ref,
@@ -125,6 +124,11 @@ defmodule ClinvarChecker do
         clinical_significance: parsed_info.clinical_significance,
         condition: parsed_info.condition
       }
+
+      key =
+        {variant.chromosome, variant.position, variant.reference, variant.alternate}
+
+      {key, variant}
     else
       _ -> nil
     end
@@ -154,15 +158,6 @@ defmodule ClinvarChecker do
       processed_significances: processed_significances,
       condition: Map.get(info_map, "CLNDN", "unknown")
     }
-  end
-
-  defp make_clinvar_key(nil), do: nil
-
-  defp make_clinvar_key(variant) do
-    key =
-      {variant.chromosome, variant.position, variant.reference, variant.alternate}
-
-    {key, variant}
   end
 
   @spec parse_23andme_file(file_path :: String.t()) :: %{tuple() => map()}
