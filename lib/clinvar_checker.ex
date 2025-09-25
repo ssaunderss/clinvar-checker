@@ -167,21 +167,7 @@ defmodule ClinvarChecker do
       |> File.stream!([], :line)
       |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
       |> Flow.map(&parse_23andme_line/1)
-      |> Flow.map(fn
-        nil ->
-          nil
-
-        genotype_call ->
-          {genotype_call.chromosome, genotype_call.position, genotype_call.genotype,
-           genotype_call.rsid}
-      end)
-      |> Flow.partition(
-        key: fn
-          {chrom, pos, genotype, _rsid} -> :erlang.phash2({chrom, pos, genotype}, stages())
-          val -> :erlang.phash2(val, stages())
-        end,
-        stages: stages()
-      )
+      |> Flow.partition()
       |> Flow.reduce(fn -> [] end, fn
         {_chrom, _pos, _genotype, _rsid} = call, acc -> [call | acc]
         _val, acc -> acc
@@ -202,12 +188,8 @@ defmodule ClinvarChecker do
       if trimmed_genotype == "--" do
         nil
       else
-        %{
-          rsid: rsid,
-          chromosome: normalize_chromosome(chromosome),
-          position: String.to_integer(position),
-          genotype: String.trim(genotype)
-        }
+        {normalize_chromosome(chromosome), String.to_integer(position), String.trim(genotype),
+         rsid}
       end
     else
       _ -> nil
