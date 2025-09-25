@@ -81,12 +81,7 @@ defmodule ClinvarChecker do
 
     path
     |> File.stream!([], :line)
-    |> Flow.from_enumerable(
-      max_demand: 4_000,
-      stages: stages(),
-      window_trigger: Flow.Window.count(40_000),
-      window_period: :infinity
-    )
+    |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
     |> Flow.map(&parse_clinvar_line/1)
     |> Flow.map(fn
       nil ->
@@ -175,12 +170,7 @@ defmodule ClinvarChecker do
     if File.exists?(path) do
       path
       |> File.stream!([], :line)
-      |> Flow.from_enumerable(
-        max_demand: 4_000,
-        stages: stages(),
-        window_trigger: Flow.Window.count(40_000),
-        window_period: :infinity
-      )
+      |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
       |> Flow.map(&parse_23andme_line/1)
       |> Flow.map(fn
         nil ->
