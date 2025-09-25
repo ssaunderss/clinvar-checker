@@ -167,11 +167,7 @@ defmodule ClinvarChecker do
       |> File.stream!([], :line)
       |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
       |> Flow.map(&parse_23andme_line/1)
-      |> Flow.partition()
-      |> Flow.reduce(fn -> [] end, fn
-        {_chrom, _pos, _genotype, _rsid} = call, acc -> [call | acc]
-        _val, acc -> acc
-      end)
+      |> Flow.reject(&is_nil/1)
       |> Enum.to_list()
     else
       IO.puts("Error: 23andMe data file not found. Please use `clinvar-checker help` for help.\n")
