@@ -93,6 +93,7 @@ defmodule ClinvarChecker do
       end,
       stages: stages()
     )
+    # functionally acts like Flow.each/2 used to without accumulating results
     |> Flow.reduce(fn -> [] end, fn
       {key, variant}, _acc ->
         :ets.insert(clinvar_table, {key, variant})
