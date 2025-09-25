@@ -21,7 +21,7 @@ defmodule ClinvarChecker do
   @default_output "tmp/variant_analysis_report.txt"
 
   def valid_clinical_significances(), do: @clinical_significances
-  defp stages, do: System.schedulers_online() * 2
+  defp stages, do: System.schedulers_online()
   defp microseconds_to_seconds(microseconds), do: microseconds / 1_000_000
 
   def run(input, args) do
