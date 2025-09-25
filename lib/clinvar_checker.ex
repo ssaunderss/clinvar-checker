@@ -87,7 +87,6 @@ defmodule ClinvarChecker do
       window_trigger: Flow.Window.count(40_000),
       window_period: :infinity
     )
-    |> Flow.partition(stages: stages())
     |> Flow.map(&parse_clinvar_line/1)
     |> Flow.map(fn
       nil ->
@@ -182,7 +181,6 @@ defmodule ClinvarChecker do
         window_trigger: Flow.Window.count(40_000),
         window_period: :infinity
       )
-      |> Flow.partition(stages: System.schedulers_online())
       |> Flow.map(&parse_23andme_line/1)
       |> Flow.map(fn
         nil ->
