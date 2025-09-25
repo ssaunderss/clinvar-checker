@@ -93,9 +93,13 @@ defmodule ClinvarChecker do
       end,
       stages: stages()
     )
-    |> Flow.map(fn
-      {key, variant} -> :ets.insert(clinvar_table, {key, variant})
-      _ -> :ok
+    |> Flow.reduce(fn -> [] end, fn
+      {key, variant}, _acc ->
+        :ets.insert(clinvar_table, {key, variant})
+        []
+
+      _, _acc ->
+        []
     end)
     |> Enum.to_list()
 
