@@ -102,7 +102,7 @@ defmodule ClinvarChecker do
       _, _acc ->
         []
     end)
-    |> Enum.to_list()
+    |> Flow.run()
 
     @clinvar_ets_table
   end
