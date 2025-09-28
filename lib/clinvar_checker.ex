@@ -54,6 +54,8 @@ defmodule ClinvarChecker do
   @spec download_clinvar_data() ::
           {:ok, file_name :: String.t()} | {:error, error_message :: String.t()}
   def download_clinvar_data() do
+    ensure_tmp_dir()
+
     case Req.get!(@clinvar_download, decode_body: false) do
       %Req.Response{status: 200, body: body} ->
         # Save and decompress
@@ -305,6 +307,17 @@ defmodule ClinvarChecker do
       IO.puts("Warning: Output file invalid, writing results to #{@default_output}\n")
 
       @default_output
+    end
+  end
+
+  defp ensure_tmp_dir() do
+    case File.mkdir_p("tmp") do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        IO.puts("Error creating tmp directory: #{reason}")
+        System.halt(1)
     end
   end
 end
