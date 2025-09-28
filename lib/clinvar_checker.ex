@@ -21,7 +21,7 @@ defmodule ClinvarChecker do
   @default_output "tmp/variant_analysis_report.txt"
 
   def valid_clinical_significances(), do: @clinical_significances
-  defp stages, do: System.schedulers_online() * 2
+  defp stages, do: System.schedulers_online()
   defp microseconds_to_seconds(microseconds), do: microseconds / 1_000_000
 
   def run(input, args) do
@@ -81,24 +81,8 @@ defmodule ClinvarChecker do
 
     path
     |> File.stream!([], :line)
-    |> Flow.from_enumerable(
-      max_demand: 4_000,
-      stages: stages(),
-      window_trigger: Flow.Window.count(40_000),
-      window_period: :infinity
-    )
-    |> Flow.partition(stages: stages())
+    |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
     |> Flow.map(&parse_clinvar_line/1)
-    |> Flow.map(fn
-      nil ->
-        nil
-
-      variant ->
-        key =
-          {variant.chromosome, variant.position, variant.reference, variant.alternate}
-
-        {key, variant}
-    end)
     |> Flow.partition(
       key: fn
         {key, _variant} ->
@@ -109,11 +93,16 @@ defmodule ClinvarChecker do
       end,
       stages: stages()
     )
-    |> Flow.map(fn
-      {key, variant} -> :ets.insert(clinvar_table, {key, variant})
-      _ -> :ok
+    # functionally acts like Flow.each/2 used to without accumulating results
+    |> Flow.reduce(fn -> [] end, fn
+      {key, variant}, _acc ->
+        :ets.insert(clinvar_table, {key, variant})
+        []
+
+      _, _acc ->
+        []
     end)
-    |> Enum.to_list()
+    |> Flow.run()
 
     @clinvar_ets_table
   end
@@ -131,7 +120,7 @@ defmodule ClinvarChecker do
       parsed_info = parse_clinvar_info(info)
       normalized_chromosme = normalize_chromosome(chrom)
 
-      %{
+      variant = %{
         chromosome: normalized_chromosme,
         position: position,
         reference: ref,
@@ -140,6 +129,11 @@ defmodule ClinvarChecker do
         clinical_significance: parsed_info.clinical_significance,
         condition: parsed_info.condition
       }
+
+      key =
+        {variant.chromosome, variant.position, variant.reference, variant.alternate}
+
+      {key, variant}
     else
       _ -> nil
     end
@@ -176,33 +170,9 @@ defmodule ClinvarChecker do
     if File.exists?(path) do
       path
       |> File.stream!([], :line)
-      |> Flow.from_enumerable(
-        max_demand: 4_000,
-        stages: stages(),
-        window_trigger: Flow.Window.count(40_000),
-        window_period: :infinity
-      )
-      |> Flow.partition(stages: System.schedulers_online())
+      |> Flow.from_enumerable(max_demand: 4_000, stages: stages())
       |> Flow.map(&parse_23andme_line/1)
-      |> Flow.map(fn
-        nil ->
-          nil
-
-        genotype_call ->
-          {genotype_call.chromosome, genotype_call.position, genotype_call.genotype,
-           genotype_call.rsid}
-      end)
-      |> Flow.partition(
-        key: fn
-          {chrom, pos, genotype, _rsid} -> :erlang.phash2({chrom, pos, genotype}, stages())
-          val -> :erlang.phash2(val, stages())
-        end,
-        stages: stages()
-      )
-      |> Flow.reduce(fn -> [] end, fn
-        {_chrom, _pos, _genotype, _rsid} = call, acc -> [call | acc]
-        _val, acc -> acc
-      end)
+      |> Flow.reject(&is_nil/1)
       |> Enum.to_list()
     else
       IO.puts("Error: 23andMe data file not found. Please use `clinvar-checker help` for help.\n")
@@ -219,12 +189,8 @@ defmodule ClinvarChecker do
       if trimmed_genotype == "--" do
         nil
       else
-        %{
-          rsid: rsid,
-          chromosome: normalize_chromosome(chromosome),
-          position: String.to_integer(position),
-          genotype: String.trim(genotype)
-        }
+        {normalize_chromosome(chromosome), String.to_integer(position), String.trim(genotype),
+         rsid}
       end
     else
       _ -> nil
